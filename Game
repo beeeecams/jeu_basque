@@ -1,0 +1,339 @@
+/* Euskara Jolasa – jeu simple pour apprendre le basque
+   Pour ajouter des mots : complète le tableau DATA ci-dessous ([basque, français]). */
+
+const DATA = {
+  salutations: {
+    label: "👋 Salutations",
+    words: [
+      ["Kaixo", "Salut / Bonjour"],
+      ["Egun on", "Bonjour (le matin)"],
+      ["Arratsalde on", "Bon après-midi"],
+      ["Gabon", "Bonsoir / Bonne nuit"],
+      ["Agur", "Au revoir"],
+      ["Eskerrik asko", "Merci beaucoup"],
+      ["Mesedez", "S'il vous plaît"],
+      ["Barkatu", "Pardon"],
+      ["Ongi etorri", "Bienvenue"],
+      ["Bai", "Oui"],
+      ["Ez", "Non"],
+    ],
+  },
+  nombres: {
+    label: "🔢 Nombres",
+    words: [
+      ["bat", "un"],
+      ["bi", "deux"],
+      ["hiru", "trois"],
+      ["lau", "quatre"],
+      ["bost", "cinq"],
+      ["sei", "six"],
+      ["zazpi", "sept"],
+      ["zortzi", "huit"],
+      ["bederatzi", "neuf"],
+      ["hamar", "dix"],
+    ],
+  },
+  couleurs: {
+    label: "🎨 Couleurs",
+    words: [
+      ["gorria", "rouge"],
+      ["urdina", "bleu"],
+      ["berdea", "vert"],
+      ["horia", "jaune"],
+      ["beltza", "noir"],
+      ["zuria", "blanc"],
+    ],
+  },
+  animaux: {
+    label: "🐾 Animaux",
+    words: [
+      ["txakurra", "le chien"],
+      ["katua", "le chat"],
+      ["zaldia", "le cheval"],
+      ["behia", "la vache"],
+      ["arraina", "le poisson"],
+      ["txoria", "l'oiseau"],
+      ["ardia", "le mouton"],
+      ["otsoa", "le loup"],
+    ],
+  },
+  nourriture: {
+    label: "🍞 Nourriture",
+    words: [
+      ["ogia", "le pain"],
+      ["ura", "l'eau"],
+      ["esnea", "le lait"],
+      ["ardoa", "le vin"],
+      ["sagarra", "la pomme"],
+      ["arrautza", "l'œuf"],
+      ["gazta", "le fromage"],
+      ["haragia", "la viande"],
+    ],
+  },
+  famille: {
+    label: "🏠 Maison et famille",
+    words: [
+      ["etxea", "la maison"],
+      ["ama", "la mère"],
+      ["aita", "le père"],
+      ["umea", "l'enfant"],
+      ["lagun", "ami(e)"],
+      ["herria", "le village / le pays"],
+    ],
+  },
+};
+
+/* ---------- Utilitaires ---------- */
+const $ = (s) => document.querySelector(s);
+const shuffle = (arr) => {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+const allWords = () => Object.values(DATA).flatMap((c) => c.words.map(([eu, fr]) => ({ eu, fr })));
+const poolFor = (cat) =>
+  cat === "all" ? allWords() : DATA[cat].words.map(([eu, fr]) => ({ eu, fr }));
+
+const state = { category: "all", direction: "eu-fr", lastMode: null };
+let quiz = null;
+let memory = null;
+
+/* ---------- Meilleurs scores ---------- */
+function loadBest() {
+  try { return JSON.parse(localStorage.getItem("euskara-best")) || { quiz: 0, memory: null }; }
+  catch { return { quiz: 0, memory: null }; }
+}
+function saveBest(b) {
+  try { localStorage.setItem("euskara-best", JSON.stringify(b)); } catch { /* ignoré */ }
+}
+function renderBest() {
+  const b = loadBest();
+  const mem = b.memory ? `${b.memory} coups` : "–";
+  $("#best").textContent = `🏆 Meilleur quiz : ${b.quiz} pts · Meilleure mémoire : ${mem}`;
+}
+
+/* ---------- Navigation ---------- */
+function show(id) {
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  $("#" + id).classList.add("active");
+  window.scrollTo(0, 0);
+}
+function toMenu() { renderBest(); show("menu"); }
+
+/* ---------- Prononciation (si le navigateur a une voix basque) ---------- */
+function speak(text) {
+  if (!("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "eu-ES";
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+/* ---------- Menu ---------- */
+function buildMenu() {
+  const box = $("#categories");
+  box.innerHTML = "";
+  const entries = [["all", "🌍 Tout"], ...Object.entries(DATA).map(([k, v]) => [k, v.label])];
+  entries.forEach(([key, label]) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (key === state.category ? " selected" : "");
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      state.category = key;
+      box.querySelectorAll(".chip").forEach((c) => c.classList.remove("selected"));
+      b.classList.add("selected");
+    });
+    box.appendChild(b);
+  });
+
+  document.querySelectorAll("#directions .chip").forEach((b) => {
+    b.classList.toggle("selected", b.dataset.dir === state.direction);
+    b.addEventListener("click", () => {
+      state.direction = b.dataset.dir;
+      document.querySelectorAll("#directions .chip").forEach((c) => c.classList.remove("selected"));
+      b.classList.add("selected");
+    });
+  });
+}
+
+/* ---------- Fiches ---------- */
+function startLearn() {
+  $("#learn-title").textContent = state.category === "all" ? "Tout le vocabulaire" : DATA[state.category].label;
+  const list = $("#learn-list");
+  list.innerHTML = "";
+  poolFor(state.category).forEach((w) => {
+    const li = document.createElement("li");
+    const left = document.createElement("span");
+    const eu = document.createElement("span");
+    eu.className = "eu";
+    eu.textContent = w.eu;
+    left.append(eu, " — ", w.fr);
+    const btn = document.createElement("button");
+    btn.textContent = "🔊";
+    btn.title = "Écouter";
+    btn.addEventListener("click", () => speak(w.eu));
+    li.append(left, btn);
+    list.appendChild(li);
+  });
+  show("learn");
+}
+
+/* ---------- Quiz ---------- */
+function startQuiz() {
+  state.lastMode = "quiz";
+  quiz = { pool: poolFor(state.category), score: 0, lives: 3, streak: 0, last: null, locked: false, current: null };
+  show("quiz");
+  nextQuestion();
+}
+
+function updateQuizStats() {
+  $("#q-score").textContent = `Score : ${quiz.score}`;
+  $("#q-streak").textContent = `Série : ${quiz.streak}`;
+  $("#q-lives").textContent = "❤️".repeat(quiz.lives) + "🖤".repeat(3 - quiz.lives);
+}
+
+function nextQuestion() {
+  quiz.locked = false;
+  $("#q-feedback").textContent = "";
+  updateQuizStats();
+
+  let target;
+  do { target = quiz.pool[Math.floor(Math.random() * quiz.pool.length)]; }
+  while (quiz.pool.length > 1 && target === quiz.last);
+  quiz.last = target;
+
+  const dir = state.direction === "mix" ? (Math.random() < 0.5 ? "eu-fr" : "fr-eu") : state.direction;
+  const from = dir === "eu-fr" ? "eu" : "fr";
+  const to = dir === "eu-fr" ? "fr" : "eu";
+  quiz.current = { target, to };
+
+  $("#q-label").textContent = dir === "eu-fr" ? "Que veut dire… ?" : "Comment dit-on en basque… ?";
+  $("#q-word").textContent = target[from];
+  $("#q-speak").style.visibility = from === "eu" ? "visible" : "hidden";
+
+  // 3 mauvaises réponses : d'abord dans la catégorie, sinon dans tout le vocabulaire
+  const others = shuffle(quiz.pool.filter((w) => w !== target));
+  const extra = shuffle(allWords().filter((w) => w.eu !== target.eu && !others.some((o) => o.eu === w.eu)));
+  const distractors = [...others, ...extra].slice(0, 3);
+  const options = shuffle([target, ...distractors]);
+
+  const box = $("#q-options");
+  box.innerHTML = "";
+  options.forEach((w) => {
+    const b = document.createElement("button");
+    b.className = "option";
+    b.textContent = w[to];
+    b.addEventListener("click", () => answer(b, w === target));
+    box.appendChild(b);
+  });
+}
+
+function answer(btn, correct) {
+  if (quiz.locked) return;
+  quiz.locked = true;
+  const { target, to } = quiz.current;
+
+  if (correct) {
+    btn.classList.add("correct");
+    quiz.streak += 1;
+    quiz.score += 10 + Math.min(quiz.streak - 1, 5) * 2;
+    $("#q-feedback").textContent = "Zuzen! ✅ (Correct !)";
+  } else {
+    btn.classList.add("wrong");
+    quiz.lives -= 1;
+    quiz.streak = 0;
+    document.querySelectorAll(".option").forEach((o) => {
+      if (o.textContent === target[to]) o.classList.add("correct");
+    });
+    $("#q-feedback").textContent = `Oker ❌ — ${target.eu} = ${target.fr}`;
+  }
+  speak(target.eu);
+  updateQuizStats();
+  setTimeout(() => (quiz.lives <= 0 ? endQuiz() : nextQuestion()), correct ? 900 : 1800);
+}
+
+function endQuiz() {
+  const best = loadBest();
+  const record = quiz.score > best.quiz;
+  if (record) { best.quiz = quiz.score; saveBest(best); }
+  $("#end-title").textContent = "Partie terminée !";
+  $("#end-text").textContent = `Score : ${quiz.score} points.` + (record ? " 🎉 Nouveau record !" : "");
+  show("end");
+}
+
+/* ---------- Mémoire ---------- */
+function startMemory() {
+  state.lastMode = "memory";
+  const pairs = shuffle(poolFor(state.category)).slice(0, 6);
+  const cards = shuffle(
+    pairs.flatMap((p, i) => [
+      { id: i, text: p.eu, lang: "eu" },
+      { id: i, text: p.fr, lang: "fr" },
+    ])
+  );
+  memory = { cards, total: pairs.length, found: 0, moves: 0, open: [], locked: false };
+
+  $("#m-moves").textContent = "Coups : 0";
+  $("#m-pairs").textContent = `Paires : 0/${memory.total}`;
+  const grid = $("#m-grid");
+  grid.innerHTML = "";
+  cards.forEach((c) => {
+    const t = document.createElement("button");
+    t.className = "tile";
+    t.textContent = "?";
+    t.addEventListener("click", () => flip(t, c));
+    grid.appendChild(t);
+  });
+  show("memory");
+}
+
+function flip(tile, card) {
+  if (memory.locked || tile.classList.contains("open") || tile.classList.contains("done")) return;
+  tile.classList.add("open", card.lang);
+  tile.textContent = card.text;
+  if (card.lang === "eu") speak(card.text);
+  memory.open.push({ tile, card });
+  if (memory.open.length < 2) return;
+
+  memory.moves += 1;
+  $("#m-moves").textContent = `Coups : ${memory.moves}`;
+  const [a, b] = memory.open;
+  memory.open = [];
+
+  if (a.card.id === b.card.id) {
+    [a, b].forEach((x) => { x.tile.classList.remove("open"); x.tile.classList.add("done"); });
+    memory.found += 1;
+    $("#m-pairs").textContent = `Paires : ${memory.found}/${memory.total}`;
+    if (memory.found === memory.total) setTimeout(endMemory, 700);
+  } else {
+    memory.locked = true;
+    setTimeout(() => {
+      [a, b].forEach((x) => { x.tile.classList.remove("open", "eu", "fr"); x.tile.textContent = "?"; });
+      memory.locked = false;
+    }, 900);
+  }
+}
+
+function endMemory() {
+  const best = loadBest();
+  const record = !best.memory || memory.moves < best.memory;
+  if (record) { best.memory = memory.moves; saveBest(best); }
+  $("#end-title").textContent = "Bravo ! Ederki! 🎉";
+  $("#end-text").textContent = `Terminé en ${memory.moves} coups.` + (record ? " 🏆 Nouveau record !" : "");
+  show("end");
+}
+
+/* ---------- Initialisation ---------- */
+document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", toMenu));
+$("#btn-learn").addEventListener("click", startLearn);
+$("#btn-quiz").addEventListener("click", startQuiz);
+$("#btn-memory").addEventListener("click", startMemory);
+$("#end-menu").addEventListener("click", toMenu);
+$("#end-again").addEventListener("click", () => (state.lastMode === "memory" ? startMemory() : startQuiz()));
+$("#q-speak").addEventListener("click", () => quiz && quiz.current && speak(quiz.current.target.eu));
+
+buildMenu();
+renderBest();
