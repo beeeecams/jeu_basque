@@ -124,11 +124,28 @@ function show(id) {
 function toMenu() { renderBest(); show("menu"); }
 
 /* ---------- Prononciation (si le navigateur a une voix basque) ---------- */
+// Nom de fichier audio : "Eskerrik asko" -> audio/eskerrik-asko.mp3
+const slug = (s) =>
+  s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+let currentAudio = null;
 function speak(text) {
+  if (currentAudio) currentAudio.pause();
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  const audio = new Audio(`audio/${slug(text)}.mp3`);
+  currentAudio = audio;
+  // Si le fichier audio n'existe pas (mot ajouté sans son), on tente une voix basque du navigateur.
+  audio.play().catch(() => speakWithBrowser(text));
+  audio.addEventListener("error", () => speakWithBrowser(text), { once: true });
+}
+
+function speakWithBrowser(text) {
   if (!("speechSynthesis" in window)) return;
+  const voice = speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith("eu"));
+  if (!voice) return; // pas de voix basque : on préfère se taire plutôt que parler avec un accent français
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = "eu-ES";
-  speechSynthesis.cancel();
+  u.voice = voice;
+  u.lang = voice.lang;
   speechSynthesis.speak(u);
 }
 
